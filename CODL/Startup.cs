@@ -23,6 +23,9 @@ public class Startup
             options.Cookie.IsEssential = true; 
         });
         
+        // Add logging
+        services.AddLogging();
+        
         // Add controllers
         services.AddControllers();
         

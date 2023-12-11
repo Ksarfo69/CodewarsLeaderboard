@@ -13,10 +13,12 @@ public interface IAppUserService
 
 public class AppUserService : IAppUserService
 {
+    private readonly ILogger<AppUserService> _logger;
     private readonly IAppUserRepository _appUserRepository;
 
-    public AppUserService(IAppUserRepository appUserRepository)
+    public AppUserService(ILogger<AppUserService> logger, IAppUserRepository appUserRepository)
     {
+        _logger = logger;
         _appUserRepository = appUserRepository;
     }
     
@@ -24,16 +26,20 @@ public class AppUserService : IAppUserService
     {
         if (await UserExists(userReg.Username))
         {
+            _logger.LogError($"User with username {userReg.Username} already exists.");
             throw new ResourceAlreadyExistsException($"User with username {userReg.Username} already exists.");
         }
 
         if (!string.Equals(userReg.Password, userReg.ConfirmPassword))
         {
+            _logger.LogError($"User provided passwords do not match.");
             throw new BadRequestException("Passwords do not match.");
         }
 
         byte[] passwordHash, passwordSalt;
+        _logger.LogInformation("Creating password hash and salt.");
         CreatePasswordHash(userReg.Password, out passwordHash, out passwordSalt);
+        _logger.LogInformation("Password hash and salt created successfully.");
 
         AppUser newAppUser = new AppUser
         {
@@ -44,6 +50,8 @@ public class AppUserService : IAppUserService
         };
 
         await _appUserRepository.AddAppUser(newAppUser);
+        
+        _logger.LogInformation($"User with username: {userReg.Username} registered successfully.");
         
         return new ServiceResponse<string>
         {
@@ -59,13 +67,17 @@ public class AppUserService : IAppUserService
 
         if (exists == default)
         {
+            _logger.LogError($"User with username {userLogin.Username} not found.");
             throw new InvalidCredentialsException("Invalid username or password.");
         }
 
         if (!VerifyPasswordHash(userLogin.Password, exists.PasswordHash, exists.PasswordSalt))
         {
+            _logger.LogError($"Provided password does not match that for user: {userLogin.Username}.");
             throw new InvalidCredentialsException("Invalid username or password.");
         }
+        
+        _logger.LogInformation($"User with username: {userLogin.Username} logged in successfully.");
         
         return new ServiceResponse<AppUserResponse>
         {

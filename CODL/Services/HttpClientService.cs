@@ -12,7 +12,13 @@ public interface IHttpClientService
 
 public class HttpClientService : IHttpClientService
 {
+    private readonly ILogger<HttpClientService> _logger;
     private readonly string CODEWARS_ENDPOINT = "https://www.codewars.com/api/v1/users/";
+
+    public HttpClientService(ILogger<HttpClientService> logger)
+    {
+        _logger = logger;
+    }
     
     public async Task<IDictionary<bool, IList>> FetchCodewarsUserInfo(List<string> usernames)
     {
@@ -22,6 +28,7 @@ public class HttpClientService : IHttpClientService
         results.Add(true, new List<CodewarsUserInfo>());
         results.Add(false, new List<string>());
         
+        _logger.LogInformation($"Querying Codewars users information from {CODEWARS_ENDPOINT}");
         using (HttpClient client = new HttpClient())
         {
             foreach (var username in usernames)
@@ -31,15 +38,17 @@ public class HttpClientService : IHttpClientService
 
             Task.WaitAll(tasks.ToArray());
         }
-
+        _logger.LogInformation($"Codewars users information queried successfully from {CODEWARS_ENDPOINT}");
         return results;
     }
 
     public async Task<CodewarsUserInfo?> FetchCodewarsUserInfo(string username)
     {
+        _logger.LogInformation($"Querying Codewars user: {username} information from {CODEWARS_ENDPOINT}");
         using (HttpClient client = new HttpClient())
         {
             CodewarsUserInfo info = await SendFetchRequestTask(client, username);
+            _logger.LogInformation($"Codewars user: {username} information queried successfully from {CODEWARS_ENDPOINT}");
             return info;
         }
     }
@@ -63,7 +72,7 @@ public class HttpClientService : IHttpClientService
         }
         catch (HttpRequestException ex)
         {
-            Console.WriteLine("Request exception: " + ex.Message);
+            _logger.LogError("Request exception: " + ex.Message);
         }
     }
 
@@ -82,7 +91,7 @@ public class HttpClientService : IHttpClientService
         }
         catch (HttpRequestException ex)
         {
-            Console.WriteLine("Request exception: " + ex.Message);
+            _logger.LogError("Request exception: " + ex.Message);
         }
 
         return default;

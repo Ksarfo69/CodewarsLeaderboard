@@ -18,17 +18,21 @@ public interface ILeaderboardService {
 
 public class LeaderboardService : ILeaderboardService
 {
+    private readonly ILogger<LeaderboardService> _logger;
     private readonly ICodewarsUserRepository _codewarsUserRepository;
     private readonly ICommentRepository _commentRepository;
     private readonly IAppUserRepository _appUserRepository;
     private readonly IHttpClientService _httpClientService;
     private static readonly MemoryCache cache = new MemoryCache(new MemoryCacheOptions());
 
-    public LeaderboardService(ICodewarsUserRepository codewarsUserRepository,
+    public LeaderboardService(
+        ILogger<LeaderboardService> logger,
+        ICodewarsUserRepository codewarsUserRepository,
         ICommentRepository commentRepository,
         IAppUserRepository appUserRepository,
         IHttpClientService httpClientService)
     {
+        _logger = logger;
         _codewarsUserRepository = codewarsUserRepository;
         _commentRepository = commentRepository;
         _appUserRepository = appUserRepository;
@@ -41,6 +45,7 @@ public class LeaderboardService : ILeaderboardService
 
         if (alreadyExists != default)
         {
+            _logger.LogError($"Codewars user: {username} already exists.");
             throw new ResourceAlreadyExistsException($"Username {username} already exists.");
         }
         
@@ -48,6 +53,7 @@ public class LeaderboardService : ILeaderboardService
 
         if (existsOnCodewars == default)
         {
+            _logger.LogError($"Username: {username} does not exist on Codewars.");
             throw new BadRequestException($"Username {username} is not a valid Codewars username.");
         }
 
@@ -60,6 +66,8 @@ public class LeaderboardService : ILeaderboardService
         
         // invalidate cache
         cache.Remove("usersInfo");
+        
+        _logger.LogInformation($"Codewars user: {newCodewarsUser.Username} added successfully");
 
         return new ServiceResponse<string>
         {
@@ -72,6 +80,8 @@ public class LeaderboardService : ILeaderboardService
     public async Task RemoveCodewarsUser(string username)
     {
         await _codewarsUserRepository.DeleteCodewarsUserByUsername(username);
+        
+        _logger.LogInformation($"Codewars user: {username} deleted successfully.");
         
         // invalidate cache
         cache.Remove("usersInfo");
@@ -89,6 +99,8 @@ public class LeaderboardService : ILeaderboardService
             rank = i.ranks.overall.name,
             languages = i.ranks.languages.Keys.ToList()
         }).ToList();
+        
+        _logger.LogInformation($"Leaderboard ranked by honor successfully");
         
         return new ServiceResponse<List<HonorRanking>>
         {
@@ -121,6 +133,8 @@ public class LeaderboardService : ILeaderboardService
                 };
             }).ToList();
         
+        _logger.LogInformation($"Leaderboard ranked by all languages successfully");
+        
         return new ServiceResponse<OverallLanguagesRanking>
             {
                 Success = true,
@@ -148,6 +162,8 @@ public class LeaderboardService : ILeaderboardService
             rank = i.ranks.languages[language].name,
         }).ToList();
         
+        _logger.LogInformation($"Leaderboard ranked by {language} successfully");
+        
         return new ServiceResponse<List<LanguageRanking>>
             {
                 Success = true,
@@ -163,6 +179,7 @@ public class LeaderboardService : ILeaderboardService
         
         if (codewarsUser == default)
         {
+            _logger.LogError($"Codewars user: {username} not found.");
             throw new ResourceNotFoundException($"Username {username} not found.");
         }
         
@@ -170,11 +187,14 @@ public class LeaderboardService : ILeaderboardService
 
         if (existsOnCodewars == default)
         {
+            _logger.LogError($"Username: {username} does not exist on Codewars.");
             throw new BadRequestException($"Username {username} is not a valid Codewars username.");
         }
 
         List<Comment> codewarsUserComments =
             await _commentRepository.GetAllByCodewarsUserId(codewarsUser.Id.ToString());
+        
+        _logger.LogInformation($"Fetched Codewars user: {username} profile successfully.");
         
         return new ServiceResponse<CodewarsUserResponse>
         {
@@ -201,6 +221,7 @@ public class LeaderboardService : ILeaderboardService
         
         if (commenter == default)
         {
+            _logger.LogError($"Logged in user with id: {commenterId} not recognized.");
             throw new ResourceNotFoundException($"Username with id: {commenterId} not found.");
         }
 
@@ -208,6 +229,7 @@ public class LeaderboardService : ILeaderboardService
 
         if (commentee == default)
         {
+            _logger.LogError($"Codewars user: {commentAdd.CommenteeUsername} not found.");
             throw new ResourceNotFoundException($"Username {commentAdd.CommenteeUsername} not found.");
         }
         
@@ -219,6 +241,8 @@ public class LeaderboardService : ILeaderboardService
         };
 
         await _commentRepository.AddComment(comment);
+        
+        _logger.LogInformation($"Comment added for Codewars user: {commentAdd.CommenteeUsername} successfully.");
 
         return new ServiceResponse<string>
         {
@@ -230,21 +254,39 @@ public class LeaderboardService : ILeaderboardService
 
     private async Task<List<CodewarsUserInfo>> GetCodewarsUsersInfo()
     {
+        _logger.LogInformation("Retrieving leaderboard stats.");
         List<CodewarsUserInfo> data;
-
-        if (cache.TryGetValue("usersInfo", out data)) return data;
-
+        
+        // cache hit?
+        if (cache.TryGetValue("usersInfo", out data))
+        {
+            _logger.LogInformation("Leaderboard stats retrieved successfully from cache.");
+            return data;
+        }
+        
+        // cache miss
         List<string> usernames = await _codewarsUserRepository.GetAllUsernames();
 
         IDictionary<bool, IList> res = await _httpClientService.FetchCodewarsUserInfo(usernames);
 
         data = res[true] as List<CodewarsUserInfo>;
-
+        
+        _logger.LogInformation("Leaderboard stats retrieved successfully from Codewars.");
+        
+        // add to cache
+        _logger.LogInformation("Adding retrieved leaderboard stats from Codewars to cache.");
         cache.Set("usersInfo", data, TimeSpan.FromMinutes(5));
-
+        _logger.LogInformation("Retrieved leaderboard stats from Codewars successfully added to cache.");
+        
+        // delete invalid usernames (invalid likely due to change of username.)
         List<string> invalidUsernames = res[false] as List<string>;
 
-        _codewarsUserRepository.DeleteCodewarsUserByUsernameIn(invalidUsernames);
+        if (invalidUsernames.Count > 0)
+        {
+            _logger.LogInformation("Deleting obsolete Codewars users.");
+            _codewarsUserRepository.DeleteCodewarsUserByUsernameIn(invalidUsernames);  
+            _logger.LogInformation("Obsolete Codewars users deleted successfully.");
+        }
         
         return data;
     }
